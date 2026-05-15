@@ -1,470 +1,184 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  ProfileModal.jsx — Premium Unified Profile Modal
-// ─────────────────────────────────────────────────────────────────────────────
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, TouchableOpacity, Image, StyleSheet,
-  Modal, Animated, ActivityIndicator, Alert, Dimensions, Platform
-} from 'react-native';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-import Icon from './Icons';
-import { FONTS, RADIUS, SPACING, SHADOWS } from '../../constants/theme';
-import socialService from '../../services/socialService';
-
-const { width } = Dimensions.get('window');
-
-export default function ProfileModal({
-  visible,
-  onClose,
-  targetUserId,
-  onStartChat,
-  showMessageButton = true,
-}) {
-  const { theme, isDark } = useTheme();
-  const { user } = useAuth();
-
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [likeLoading, setLikeLoading] = useState(false);
-  const [friendLoading, setFriendLoading] = useState(false);
-
-  const slideAnim = useRef(new Animated.Value(600)).current;
-  const heartScale = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  const bg = theme.bg.base;
-  const surface = theme.bg.surface;
-  const txt1 = theme.text.primary;
-  const txt2 = theme.text.secondary || txt1;
-  const txtM = theme.text.muted;
-  const accent = theme.accent.primary;
-  const gold = theme.accent.gold;
-  const border = theme.glass.border;
-  const glassStrong = theme.glass.strong;
-
-  useEffect(() => {
-    if (visible && targetUserId) {
-      setLoading(true);
-      setProfile(null);
-      slideAnim.setValue(600);
-      fadeAnim.setValue(0);
-      
-      Animated.parallel([
-        Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 12, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true })
-      ]).start();
-
-      socialService.getSocialProfile(targetUserId)
-        .then(data => setProfile(data))
-        .catch(err => {
-          console.warn('Failed to load social profile:', err?.message);
-        })
-        .finally(() => setLoading(false));
-    }
-  }, [visible, targetUserId]);
-
-  const handleClose = () => {
-    Animated.parallel([
-      Animated.timing(slideAnim, { toValue: 600, duration: 250, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true })
-    ]).start(() => {
-      onClose();
-    });
-  };
-
-  const handleLike = async () => {
-    if (!profile || likeLoading) return;
-    setLikeLoading(true);
-
-    Animated.sequence([
-      Animated.spring(heartScale, { toValue: 1.4, friction: 3, tension: 200, useNativeDriver: true }),
-      Animated.spring(heartScale, { toValue: 1, friction: 3, tension: 200, useNativeDriver: true }),
-    ]).start();
-
-    try {
-      const res = await socialService.toggleLike(targetUserId);
-      setProfile(prev => ({
-        ...prev,
-        isLikedByMe: res.liked,
-        likeCount: res.likeCount,
-      }));
-    } catch (err) {
-      console.warn('Like failed:', err?.message);
-    } finally {
-      setLikeLoading(false);
-    }
-  };
-
-  const handleFriendAction = async () => {
-    if (!profile || friendLoading) return;
-    setFriendLoading(true);
-
-    try {
-      const status = profile.friendshipStatus;
-      if (status === 'NONE') {
-        const res = await socialService.sendFriendRequest(targetUserId);
-        setProfile(prev => ({ ...prev, friendshipStatus: res.status === 'REQUEST_SENT' ? 'PENDING' : prev.friendshipStatus }));
-      } else if (status === 'PENDING') {
-        const res = await socialService.acceptFriendRequest(targetUserId);
-        if (res.status === 'ACCEPTED') {
-          setProfile(prev => ({
-            ...prev,
-            friendshipStatus: 'ACCEPTED',
-            friendCount: (prev.friendCount || 0) + 1,
-          }));
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Curious Minds</title>
+    <style>
+        :root {
+            --bg-color: #08090F;
+            --card-bg: #1C1D26;
+            --text-primary: #FFFFFF;
+            --text-muted: rgba(255, 255, 255, 0.7);
+            --accent: #7B6FFF;
+            --border: rgba(255, 255, 255, 0.1);
         }
-      }
-    } catch (err) {
-      console.warn('Friend action failed:', err?.message);
-    } finally {
-      setFriendLoading(false);
-    }
-  };
 
-  const handleDirectMessage = () => {
-    if (profile && onStartChat) {
-      if (profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') {
-        Alert.alert(
-          'Private Profile',
-          'This user has a private profile. You must be friends with them to send a direct message.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
 
-      const pId = profile.id;
-      const pName = profile.name;
-      handleClose();
-      setTimeout(() => onStartChat(pId, pName), 250);
-    }
-  };
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
 
-  const getFriendButtonInfo = () => {
-    if (!profile) return { label: 'Add Friend', icon: 'user-plus', color: '#22C55E' };
-    const s = profile.friendshipStatus;
-    if (s === 'ACCEPTED') return { label: 'Friends ✓', icon: 'users', color: '#22C55E' };
-    if (s === 'PENDING') return { label: 'Pending...', icon: 'clock', color: '#F59E0B' };
-    return { label: 'Add Friend', icon: 'user-plus', color: '#22C55E' };
-  };
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+            padding: 40px;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+        }
 
-  if (!visible) return null;
+        h1 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
 
-  const friendBtn = getFriendButtonInfo();
+        .last-updated {
+            color: var(--accent);
+            font-size: 0.9em;
+            font-weight: 500;
+        }
 
-  return (
-    <Modal transparent animationType="none" visible={visible} onRequestClose={handleClose}>
-      <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
-        <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleClose} />
-      </Animated.View>
+        .section {
+            margin-bottom: 40px;
+            background-color: var(--card-bg);
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
 
-      <Animated.View style={[styles.modalContainer, { transform: [{ translateY: slideAnim }] }]} pointerEvents="box-none">
-        <View style={[styles.content, { backgroundColor: surface, borderColor: border }]}>
-          <TouchableOpacity activeOpacity={1}>
-            <View style={styles.dragHandle} />
+        h2 {
+            color: var(--accent);
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
 
-            {loading ? (
-              <View style={styles.loadingWrap}>
-                <ActivityIndicator color={accent} size="large" />
-                <Text style={[styles.loadingText, { color: txtM }]}>Fetching Profile...</Text>
-              </View>
-            ) : profile ? (
-              <>
-                <View style={styles.header}>
-                  <View style={styles.avatarWrapper}>
-                    <LinearGradient
-                      colors={[accent, '#4ECDC4']}
-                      style={styles.avatarGlow}
-                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                    />
-                    {profile.imageUrl ? (
-                      <Image source={{ uri: profile.imageUrl }} style={[styles.avatar, { borderColor: surface }]} />
-                    ) : (
-                      <View style={[styles.avatarPh, { borderColor: surface, backgroundColor: theme.bg.elevated }]}>
-                        <Text style={[styles.avatarInit, { color: accent }]}>{(profile.name || '?')[0].toUpperCase()}</Text>
-                      </View>
-                    )}
-                    {profile.level >= 10 && (
-                      <View style={[styles.premiumBadge, { borderColor: surface }]}>
-                        <Icon name="star" size={12} color="#000" />
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.name, { color: txt1 }]}>{profile.name}</Text>
-                  <Text style={[styles.title, { color: accent }]}>{profile.title}</Text>
-                </View>
+        p, ul {
+            color: var(--text-muted);
+            margin-bottom: 15px;
+        }
 
-                {/* ── Bio ─────────────────────────── */}
-                <View style={[styles.bioContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderColor: border }]}>
-                  <Icon name="quote" size={16} color={theme.glass.strong} style={styles.quoteIcon} />
-                  <Text style={[styles.bioText, { color: profile.bio ? txt1 : txtM }]}>
-                    {profile.bio ? profile.bio : "exploring understanding why"}
-                  </Text>
-                </View>
+        ul {
+            padding-left: 20px;
+        }
 
-                {/* ── Stats Grid ─────────────────── */}
-                <View style={styles.statsContainer}>
-                  <View style={[styles.statBox, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
-                    <Text style={[styles.statLabel, { color: txtM }]}>Level</Text>
-                    <Text style={[styles.statVal, { color: txt1 }]}>{profile.level}</Text>
-                  </View>
-                  <View style={[styles.statBox, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
-                    <Text style={[styles.statLabel, { color: txtM }]}>Points</Text>
-                    <Text style={[styles.statVal, { color: gold }]}>{(profile.points || 0).toLocaleString()}</Text>
-                  </View>
-                  <View style={[styles.statBox, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
-                    <Text style={[styles.statLabel, { color: txtM }]}>Streak</Text>
-                    <Text style={[styles.statVal, { color: '#FF9F1C' }]}>{profile.streak || 0} 🔥</Text>
-                  </View>
-                </View>
+        li {
+            margin-bottom: 10px;
+        }
 
-                <View style={styles.socialRow}>
-                  <View style={[styles.socialBadge, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
-                    <View style={[styles.socialIconWrap, { backgroundColor: 'rgba(255, 107, 107, 0.15)' }]}>
-                      <Icon name={profile.isLikedByMe ? 'heart-filled' : 'heart'} size={14} color="#FF6B6B" />
-                    </View>
-                    <View>
-                      <Text style={[styles.socialNum, { color: txt1 }]}>{profile.likeCount || 0}</Text>
-                      <Text style={[styles.socialLabel, { color: txtM }]}>Likes</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.socialBadge, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
-                    <View style={[styles.socialIconWrap, { backgroundColor: 'rgba(123, 111, 255, 0.15)' }]}>
-                      <Icon name="users" size={14} color={accent} />
-                    </View>
-                    <View>
-                      <Text style={[styles.socialNum, { color: txt1 }]}>{profile.friendCount || 0}</Text>
-                      <Text style={[styles.socialLabel, { color: txtM }]}>Friends</Text>
-                    </View>
-                  </View>
-                </View>
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
 
-                {/* ── Action Buttons ─────────────────── */}
-                <View style={styles.actionRow}>
-                  <TouchableOpacity
-                    onPress={handleLike}
-                    disabled={likeLoading}
-                    style={{ flex: 1 }}
-                    activeOpacity={0.8}
-                  >
-                    <LinearGradient
-                      colors={profile.isLikedByMe ? ['#FF6B6B', '#FF4D6D'] : [theme.bg.elevated, theme.bg.elevated]}
-                      style={[
-                        styles.actionBtn, 
-                        !profile.isLikedByMe && { borderWidth: 1, borderColor: border }
-                      ]}
-                    >
-                      <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-                        <Icon name={profile.isLikedByMe ? 'heart-filled' : 'heart'} size={18} color={profile.isLikedByMe ? '#FFF' : '#FF6B6B'} />
-                      </Animated.View>
-                      <Text style={[styles.actionBtnText, { color: profile.isLikedByMe ? '#FFF' : '#FF6B6B' }]}>
-                        {profile.isLikedByMe ? 'Liked' : 'Like'}
-                      </Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
+        a:hover {
+            text-decoration: underline;
+        }
 
-                  <TouchableOpacity
-                    onPress={handleFriendAction}
-                    disabled={friendLoading || profile.friendshipStatus === 'ACCEPTED'}
-                    style={{ flex: 1 }}
-                    activeOpacity={0.8}
-                  >
-                    <LinearGradient
-                      colors={profile.friendshipStatus === 'ACCEPTED' ? ['#10B981', '#059669'] : [theme.bg.elevated, theme.bg.elevated]}
-                      style={[
-                        styles.actionBtn,
-                        profile.friendshipStatus !== 'ACCEPTED' && { borderWidth: 1, borderColor: border },
-                        { opacity: friendLoading ? 0.6 : 1 }
-                      ]}
-                    >
-                      {friendLoading ? (
-                        <ActivityIndicator size="small" color={friendBtn.color} />
-                      ) : (
-                        <>
-                          <Icon name={friendBtn.icon} size={18} color={profile.friendshipStatus === 'ACCEPTED' ? '#FFF' : friendBtn.color} />
-                          <Text style={[styles.actionBtnText, { color: profile.friendshipStatus === 'ACCEPTED' ? '#FFF' : friendBtn.color }]}>
-                            {friendBtn.label}
-                          </Text>
-                        </>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
+        .contact-box {
+            text-align: center;
+            padding: 30px;
+            background: rgba(123, 111, 255, 0.1);
+            border: 1px solid rgba(123, 111, 255, 0.3);
+            border-radius: 12px;
+            margin-top: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Privacy Policy</h1>
+            <p style="color: var(--text-muted); font-size: 1.1em;">Curious Minds Educational App</p>
+            <div class="last-updated">Last Updated: May 11, 2026</div>
+        </div>
 
-                {showMessageButton && onStartChat && (
-                  <TouchableOpacity onPress={handleDirectMessage} activeOpacity={0.8}>
-                    <LinearGradient
-                      colors={(profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') ? ['#4B5563', '#374151'] : [accent, '#5a4ee3']}
-                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                      style={styles.dmBtn}
-                    >
-                      <Icon name={(profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') ? 'lock' : 'chat'} size={18} color="#FFFFFF" />
-                      <Text style={styles.dmBtnText}>{(profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') ? 'Private Message' : 'Message Directly'}</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                )}
-              </>
-            ) : (
-              <View style={styles.loadingWrap}>
-                <View style={styles.errorIconWrap}>
-                  <Icon name="alert" size={32} color={txtM} />
-                </View>
-                <Text style={[styles.errorText, { color: txt1 }]}>Profile Unavailable</Text>
-                <Text style={[styles.errorSubText, { color: txtM }]}>This user might have deleted their account or is temporarily unavailable.</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-    </Modal>
-  );
-}
+        <div class="section">
+            <h2>1. Information We Collect</h2>
+            <p>When you use Curious Minds, we collect the following information:</p>
+            <ul>
+                <li><strong>Account Information</strong>: Your Google account name, email address, and profile photo (used strictly for login and social features).</li>
+                <li><strong>Usage Data</strong>: Quiz scores, progress data, reading history, streaks, and XP points (used to personalize your learning experience).</li>
+                <li><strong>Social Data</strong>: Friend connections, chat messages, and likes (used for the social features you opt into).</li>
+                <li><strong>Device Information</strong>: Device type and operating system version (used for crash prevention and compatibility).</li>
+            </ul>
+            <p>We do NOT collect any financial, location, health, or biometric data.</p>
+        </div>
 
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  content: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    padding: SPACING.lg,
-    paddingBottom: Platform.OS === 'ios' ? 50 : 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 20,
-  },
-  dragHandle: {
-    width: 48,
-    height: 5,
-    backgroundColor: 'rgba(150, 150, 150, 0.4)',
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 24,
-  },
-  loadingWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
-  loadingText: { fontFamily: FONTS.bodyMedium, fontSize: 14, marginTop: 16 },
-  errorIconWrap: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(150,150,150,0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  errorText: { fontFamily: FONTS.displayMedium, fontSize: 18, marginBottom: 8 },
-  errorSubText: { fontFamily: FONTS.body, fontSize: 14, textAlign: 'center', paddingHorizontal: 40, lineHeight: 20 },
+        <div class="section">
+            <h2>2. How We Use Your Information</h2>
+            <p>Your information is used to:</p>
+            <ul>
+                <li>Provide and maintain the educational service.</li>
+                <li>Track your learning progress and streaks.</li>
+                <li>Enable social features (friends, chat, leaderboard).</li>
+                <li>Send push notifications (only if you grant permission).</li>
+                <li>Improve app stability and fix bugs.</li>
+            </ul>
+            <p>We never sell your personal information to third parties.</p>
+        </div>
 
-  // Header
-  header: { alignItems: 'center', marginBottom: 24 },
-  avatarWrapper: {
-    width: 100, height: 100,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 16,
-  },
-  avatarGlow: {
-    position: 'absolute',
-    width: 104, height: 104,
-    borderRadius: 52,
-    opacity: 0.8,
-  },
-  avatar: {
-    width: 96, height: 96,
-    borderRadius: 48,
-    borderWidth: 4,
-  },
-  avatarPh: {
-    width: 96, height: 96,
-    borderRadius: 48,
-    borderWidth: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInit: { fontFamily: FONTS.displayMedium, fontSize: 36 },
-  premiumBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 6,
-    backgroundColor: '#FFD166',
-    padding: 6,
-    borderRadius: 14,
-    borderWidth: 2,
-  },
-  name: { fontFamily: FONTS.display, fontSize: 26, marginBottom: 4, letterSpacing: -0.5 },
-  title: { fontFamily: FONTS.bodyMedium, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 },
+        <div class="section">
+            <h2>3. AI-Generated Content</h2>
+            <p>Curious Minds contains educational content that was generated with AI assistance, including facts, quiz questions, and learning modules. All AI-generated content has been reviewed for accuracy and age-appropriateness.</p>
+        </div>
 
-  // Bio
-  bioContainer: {
-    padding: SPACING.md,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    marginBottom: 24,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  quoteIcon: {
-    position: 'absolute',
-    top: -4,
-    left: 8,
-    opacity: 0.15,
-    transform: [{ scale: 3 }],
-  },
-  bioText: {
-    fontFamily: FONTS.body,
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    paddingHorizontal: 8,
-  },
+        <div class="section">
+            <h2>4. Data Storage & Security</h2>
+            <ul>
+                <li>Your data is stored securely on our servers using industry-standard encryption (HTTPS/TLS).</li>
+                <li>Authentication tokens are stored locally on your device using encrypted storage.</li>
+                <li>We implement reasonable security measures to protect your data from unauthorized access.</li>
+            </ul>
+        </div>
 
-  // Stats Grid
-  statsContainer: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  statBox: {
-    flex: 1, alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-  },
-  statLabel: { fontFamily: FONTS.bodyMedium, fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
-  statVal: { fontFamily: FONTS.displayMedium, fontSize: 18 },
+        <div class="section">
+            <h2>5. Third-Party Services</h2>
+            <p>We use the following third-party services:</p>
+            <ul>
+                <li><strong>Google Sign-In</strong>: For authentication (governed by Google's Privacy Policy).</li>
+                <li><strong>Expo Push Notifications</strong>: For sending learning reminders.</li>
+            </ul>
+        </div>
 
-  // Social Row
-  socialRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  socialBadge: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
-    padding: 12, borderRadius: RADIUS.lg, borderWidth: 1,
-    gap: 12,
-  },
-  socialIconWrap: {
-    width: 40, height: 40,
-    borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  socialNum: { fontFamily: FONTS.displayMedium, fontSize: 18, marginBottom: 2 },
-  socialLabel: { fontFamily: FONTS.body, fontSize: 12 },
+        <div class="section">
+            <h2>6. Children's Privacy (COPPA compliance)</h2>
+            <p>Curious Minds is designed as an educational app suitable for all ages. We do not knowingly collect personal information from children under 13 without parental consent. If you are a parent or guardian and believe your child has provided personal information, please contact us and we will delete it promptly.</p>
+        </div>
 
-  // Action Buttons
-  actionRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  actionBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 14, borderRadius: RADIUS.xl,
-  },
-  actionBtnText: { fontFamily: FONTS.displayMedium, fontSize: 15 },
+        <div class="section">
+            <h2>7. Data Deletion Rights</h2>
+            <p>You can request deletion of your account and all associated data at any time through the app:</p>
+            <ul>
+                <li>Open the app &rarr; Go to Settings &rarr; Tap <strong>Delete Account</strong>.</li>
+                <li>Or email us directly at <a href="mailto:chandanprajapati6307@gmail.com">chandanprajapati6307@gmail.com</a>.</li>
+            </ul>
+            <p style="color: #ff4444; font-weight: bold;">⚠️ WARNING: Account deletion is completely irreversible. If you delete your account, you will permanently lose access to all your learning progress, XP points, friends, and chat history. This data cannot be recovered.</p>
+            <p>Upon deletion, all your personal data, progress, and social connections will be permanently removed from our servers within 30 days.</p>
+        </div>
 
-  // DM Button
-  dmBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    paddingVertical: 16, borderRadius: RADIUS.xl,
-    shadowColor: '#7B6FFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  dmBtnText: { fontFamily: FONTS.displayMedium, fontSize: 16, color: '#FFFFFF' },
-});
+        <div class="section">
+            <h2>8. Contact Us</h2>
+            <p>If you have any questions or concerns about this privacy policy or your data, please contact us:</p>
+            <ul>
+                <li>Email: <a href="mailto:chandanprajapati6307@gmail.com">chandanprajapati6307@gmail.com</a></li>
+                <li>WhatsApp: +91-6307663592</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
