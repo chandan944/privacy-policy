@@ -1,0 +1,470 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  ProfileModal.jsx — Premium Unified Profile Modal
+// ─────────────────────────────────────────────────────────────────────────────
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View, Text, TouchableOpacity, Image, StyleSheet,
+  Modal, Animated, ActivityIndicator, Alert, Dimensions, Platform
+} from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import Icon from './Icons';
+import { FONTS, RADIUS, SPACING, SHADOWS } from '../../constants/theme';
+import socialService from '../../services/socialService';
+
+const { width } = Dimensions.get('window');
+
+export default function ProfileModal({
+  visible,
+  onClose,
+  targetUserId,
+  onStartChat,
+  showMessageButton = true,
+}) {
+  const { theme, isDark } = useTheme();
+  const { user } = useAuth();
+
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [likeLoading, setLikeLoading] = useState(false);
+  const [friendLoading, setFriendLoading] = useState(false);
+
+  const slideAnim = useRef(new Animated.Value(600)).current;
+  const heartScale = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const bg = theme.bg.base;
+  const surface = theme.bg.surface;
+  const txt1 = theme.text.primary;
+  const txt2 = theme.text.secondary || txt1;
+  const txtM = theme.text.muted;
+  const accent = theme.accent.primary;
+  const gold = theme.accent.gold;
+  const border = theme.glass.border;
+  const glassStrong = theme.glass.strong;
+
+  useEffect(() => {
+    if (visible && targetUserId) {
+      setLoading(true);
+      setProfile(null);
+      slideAnim.setValue(600);
+      fadeAnim.setValue(0);
+      
+      Animated.parallel([
+        Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 12, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true })
+      ]).start();
+
+      socialService.getSocialProfile(targetUserId)
+        .then(data => setProfile(data))
+        .catch(err => {
+          console.warn('Failed to load social profile:', err?.message);
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [visible, targetUserId]);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(slideAnim, { toValue: 600, duration: 250, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true })
+    ]).start(() => {
+      onClose();
+    });
+  };
+
+  const handleLike = async () => {
+    if (!profile || likeLoading) return;
+    setLikeLoading(true);
+
+    Animated.sequence([
+      Animated.spring(heartScale, { toValue: 1.4, friction: 3, tension: 200, useNativeDriver: true }),
+      Animated.spring(heartScale, { toValue: 1, friction: 3, tension: 200, useNativeDriver: true }),
+    ]).start();
+
+    try {
+      const res = await socialService.toggleLike(targetUserId);
+      setProfile(prev => ({
+        ...prev,
+        isLikedByMe: res.liked,
+        likeCount: res.likeCount,
+      }));
+    } catch (err) {
+      console.warn('Like failed:', err?.message);
+    } finally {
+      setLikeLoading(false);
+    }
+  };
+
+  const handleFriendAction = async () => {
+    if (!profile || friendLoading) return;
+    setFriendLoading(true);
+
+    try {
+      const status = profile.friendshipStatus;
+      if (status === 'NONE') {
+        const res = await socialService.sendFriendRequest(targetUserId);
+        setProfile(prev => ({ ...prev, friendshipStatus: res.status === 'REQUEST_SENT' ? 'PENDING' : prev.friendshipStatus }));
+      } else if (status === 'PENDING') {
+        const res = await socialService.acceptFriendRequest(targetUserId);
+        if (res.status === 'ACCEPTED') {
+          setProfile(prev => ({
+            ...prev,
+            friendshipStatus: 'ACCEPTED',
+            friendCount: (prev.friendCount || 0) + 1,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('Friend action failed:', err?.message);
+    } finally {
+      setFriendLoading(false);
+    }
+  };
+
+  const handleDirectMessage = () => {
+    if (profile && onStartChat) {
+      if (profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') {
+        Alert.alert(
+          'Private Profile',
+          'This user has a private profile. You must be friends with them to send a direct message.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      const pId = profile.id;
+      const pName = profile.name;
+      handleClose();
+      setTimeout(() => onStartChat(pId, pName), 250);
+    }
+  };
+
+  const getFriendButtonInfo = () => {
+    if (!profile) return { label: 'Add Friend', icon: 'user-plus', color: '#22C55E' };
+    const s = profile.friendshipStatus;
+    if (s === 'ACCEPTED') return { label: 'Friends ✓', icon: 'users', color: '#22C55E' };
+    if (s === 'PENDING') return { label: 'Pending...', icon: 'clock', color: '#F59E0B' };
+    return { label: 'Add Friend', icon: 'user-plus', color: '#22C55E' };
+  };
+
+  if (!visible) return null;
+
+  const friendBtn = getFriendButtonInfo();
+
+  return (
+    <Modal transparent animationType="none" visible={visible} onRequestClose={handleClose}>
+      <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
+        <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleClose} />
+      </Animated.View>
+
+      <Animated.View style={[styles.modalContainer, { transform: [{ translateY: slideAnim }] }]} pointerEvents="box-none">
+        <View style={[styles.content, { backgroundColor: surface, borderColor: border }]}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={styles.dragHandle} />
+
+            {loading ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator color={accent} size="large" />
+                <Text style={[styles.loadingText, { color: txtM }]}>Fetching Profile...</Text>
+              </View>
+            ) : profile ? (
+              <>
+                <View style={styles.header}>
+                  <View style={styles.avatarWrapper}>
+                    <LinearGradient
+                      colors={[accent, '#4ECDC4']}
+                      style={styles.avatarGlow}
+                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                    />
+                    {profile.imageUrl ? (
+                      <Image source={{ uri: profile.imageUrl }} style={[styles.avatar, { borderColor: surface }]} />
+                    ) : (
+                      <View style={[styles.avatarPh, { borderColor: surface, backgroundColor: theme.bg.elevated }]}>
+                        <Text style={[styles.avatarInit, { color: accent }]}>{(profile.name || '?')[0].toUpperCase()}</Text>
+                      </View>
+                    )}
+                    {profile.level >= 10 && (
+                      <View style={[styles.premiumBadge, { borderColor: surface }]}>
+                        <Icon name="star" size={12} color="#000" />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.name, { color: txt1 }]}>{profile.name}</Text>
+                  <Text style={[styles.title, { color: accent }]}>{profile.title}</Text>
+                </View>
+
+                {/* ── Bio ─────────────────────────── */}
+                <View style={[styles.bioContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderColor: border }]}>
+                  <Icon name="quote" size={16} color={theme.glass.strong} style={styles.quoteIcon} />
+                  <Text style={[styles.bioText, { color: profile.bio ? txt1 : txtM }]}>
+                    {profile.bio ? profile.bio : "exploring understanding why"}
+                  </Text>
+                </View>
+
+                {/* ── Stats Grid ─────────────────── */}
+                <View style={styles.statsContainer}>
+                  <View style={[styles.statBox, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
+                    <Text style={[styles.statLabel, { color: txtM }]}>Level</Text>
+                    <Text style={[styles.statVal, { color: txt1 }]}>{profile.level}</Text>
+                  </View>
+                  <View style={[styles.statBox, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
+                    <Text style={[styles.statLabel, { color: txtM }]}>Points</Text>
+                    <Text style={[styles.statVal, { color: gold }]}>{(profile.points || 0).toLocaleString()}</Text>
+                  </View>
+                  <View style={[styles.statBox, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
+                    <Text style={[styles.statLabel, { color: txtM }]}>Streak</Text>
+                    <Text style={[styles.statVal, { color: '#FF9F1C' }]}>{profile.streak || 0} 🔥</Text>
+                  </View>
+                </View>
+
+                <View style={styles.socialRow}>
+                  <View style={[styles.socialBadge, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
+                    <View style={[styles.socialIconWrap, { backgroundColor: 'rgba(255, 107, 107, 0.15)' }]}>
+                      <Icon name={profile.isLikedByMe ? 'heart-filled' : 'heart'} size={14} color="#FF6B6B" />
+                    </View>
+                    <View>
+                      <Text style={[styles.socialNum, { color: txt1 }]}>{profile.likeCount || 0}</Text>
+                      <Text style={[styles.socialLabel, { color: txtM }]}>Likes</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.socialBadge, { backgroundColor: theme.bg.elevated, borderColor: border }]}>
+                    <View style={[styles.socialIconWrap, { backgroundColor: 'rgba(123, 111, 255, 0.15)' }]}>
+                      <Icon name="users" size={14} color={accent} />
+                    </View>
+                    <View>
+                      <Text style={[styles.socialNum, { color: txt1 }]}>{profile.friendCount || 0}</Text>
+                      <Text style={[styles.socialLabel, { color: txtM }]}>Friends</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* ── Action Buttons ─────────────────── */}
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    onPress={handleLike}
+                    disabled={likeLoading}
+                    style={{ flex: 1 }}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={profile.isLikedByMe ? ['#FF6B6B', '#FF4D6D'] : [theme.bg.elevated, theme.bg.elevated]}
+                      style={[
+                        styles.actionBtn, 
+                        !profile.isLikedByMe && { borderWidth: 1, borderColor: border }
+                      ]}
+                    >
+                      <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                        <Icon name={profile.isLikedByMe ? 'heart-filled' : 'heart'} size={18} color={profile.isLikedByMe ? '#FFF' : '#FF6B6B'} />
+                      </Animated.View>
+                      <Text style={[styles.actionBtnText, { color: profile.isLikedByMe ? '#FFF' : '#FF6B6B' }]}>
+                        {profile.isLikedByMe ? 'Liked' : 'Like'}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleFriendAction}
+                    disabled={friendLoading || profile.friendshipStatus === 'ACCEPTED'}
+                    style={{ flex: 1 }}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={profile.friendshipStatus === 'ACCEPTED' ? ['#10B981', '#059669'] : [theme.bg.elevated, theme.bg.elevated]}
+                      style={[
+                        styles.actionBtn,
+                        profile.friendshipStatus !== 'ACCEPTED' && { borderWidth: 1, borderColor: border },
+                        { opacity: friendLoading ? 0.6 : 1 }
+                      ]}
+                    >
+                      {friendLoading ? (
+                        <ActivityIndicator size="small" color={friendBtn.color} />
+                      ) : (
+                        <>
+                          <Icon name={friendBtn.icon} size={18} color={profile.friendshipStatus === 'ACCEPTED' ? '#FFF' : friendBtn.color} />
+                          <Text style={[styles.actionBtnText, { color: profile.friendshipStatus === 'ACCEPTED' ? '#FFF' : friendBtn.color }]}>
+                            {friendBtn.label}
+                          </Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+
+                {showMessageButton && onStartChat && (
+                  <TouchableOpacity onPress={handleDirectMessage} activeOpacity={0.8}>
+                    <LinearGradient
+                      colors={(profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') ? ['#4B5563', '#374151'] : [accent, '#5a4ee3']}
+                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                      style={styles.dmBtn}
+                    >
+                      <Icon name={(profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') ? 'lock' : 'chat'} size={18} color="#FFFFFF" />
+                      <Text style={styles.dmBtnText}>{(profile.isPrivateProfile && profile.friendshipStatus !== 'ACCEPTED') ? 'Private Message' : 'Message Directly'}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <View style={styles.loadingWrap}>
+                <View style={styles.errorIconWrap}>
+                  <Icon name="alert" size={32} color={txtM} />
+                </View>
+                <Text style={[styles.errorText, { color: txt1 }]}>Profile Unavailable</Text>
+                <Text style={[styles.errorSubText, { color: txtM }]}>This user might have deleted their account or is temporarily unavailable.</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  content: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    padding: SPACING.lg,
+    paddingBottom: Platform.OS === 'ios' ? 50 : 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  dragHandle: {
+    width: 48,
+    height: 5,
+    backgroundColor: 'rgba(150, 150, 150, 0.4)',
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  loadingWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
+  loadingText: { fontFamily: FONTS.bodyMedium, fontSize: 14, marginTop: 16 },
+  errorIconWrap: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(150,150,150,0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  errorText: { fontFamily: FONTS.displayMedium, fontSize: 18, marginBottom: 8 },
+  errorSubText: { fontFamily: FONTS.body, fontSize: 14, textAlign: 'center', paddingHorizontal: 40, lineHeight: 20 },
+
+  // Header
+  header: { alignItems: 'center', marginBottom: 24 },
+  avatarWrapper: {
+    width: 100, height: 100,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 16,
+  },
+  avatarGlow: {
+    position: 'absolute',
+    width: 104, height: 104,
+    borderRadius: 52,
+    opacity: 0.8,
+  },
+  avatar: {
+    width: 96, height: 96,
+    borderRadius: 48,
+    borderWidth: 4,
+  },
+  avatarPh: {
+    width: 96, height: 96,
+    borderRadius: 48,
+    borderWidth: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInit: { fontFamily: FONTS.displayMedium, fontSize: 36 },
+  premiumBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 6,
+    backgroundColor: '#FFD166',
+    padding: 6,
+    borderRadius: 14,
+    borderWidth: 2,
+  },
+  name: { fontFamily: FONTS.display, fontSize: 26, marginBottom: 4, letterSpacing: -0.5 },
+  title: { fontFamily: FONTS.bodyMedium, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 },
+
+  // Bio
+  bioContainer: {
+    padding: SPACING.md,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    marginBottom: 24,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  quoteIcon: {
+    position: 'absolute',
+    top: -4,
+    left: 8,
+    opacity: 0.15,
+    transform: [{ scale: 3 }],
+  },
+  bioText: {
+    fontFamily: FONTS.body,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingHorizontal: 8,
+  },
+
+  // Stats Grid
+  statsContainer: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  statBox: {
+    flex: 1, alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+  },
+  statLabel: { fontFamily: FONTS.bodyMedium, fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  statVal: { fontFamily: FONTS.displayMedium, fontSize: 18 },
+
+  // Social Row
+  socialRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
+  socialBadge: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    padding: 12, borderRadius: RADIUS.lg, borderWidth: 1,
+    gap: 12,
+  },
+  socialIconWrap: {
+    width: 40, height: 40,
+    borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  socialNum: { fontFamily: FONTS.displayMedium, fontSize: 18, marginBottom: 2 },
+  socialLabel: { fontFamily: FONTS.body, fontSize: 12 },
+
+  // Action Buttons
+  actionRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  actionBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 14, borderRadius: RADIUS.xl,
+  },
+  actionBtnText: { fontFamily: FONTS.displayMedium, fontSize: 15 },
+
+  // DM Button
+  dmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 16, borderRadius: RADIUS.xl,
+    shadowColor: '#7B6FFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  dmBtnText: { fontFamily: FONTS.displayMedium, fontSize: 16, color: '#FFFFFF' },
+});
